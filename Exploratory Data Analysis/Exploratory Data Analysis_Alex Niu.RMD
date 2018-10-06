@@ -1,0 +1,405 @@
+---
+output: 
+  html_document
+---
+Loan Characteristics 拍拍贷标的特征分析 by Alex Niu
+========================================================
+
+```{r Load Packages,echo=FALSE, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(GGally)
+library(dplyr)
+library(tidyr)
+library(gridExtra)
+library(RColorBrewer)
+library(showtext)
+library(psych)
+```
+```{r echo=FALSE, Load_the_Data}
+# 加载数据
+lc <- read.csv('LC.csv')
+```
+```{r Load, Font, echo=FALSE}
+# 加载中文字体
+showtext_auto(enable=TRUE)
+font_path = "yaheiconsolashybrid.ttf"
+font_name = tools::file_path_sans_ext(basename(font_path))
+font_add(font_name, "yaheiconsolashybrid.ttf")
+
+```
+加载拍拍贷 Loan Characteristics 数据集
+
+# 单变量绘图选择
+```{r echo=FALSE, Univariate_Plots}
+dim(lc)
+str(lc)
+summary(lc)
+```
+```{r message=FALSE, echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+sapply(lc,function(x) sum(is.na(x)))
+```
+
+```{r message=FALSE, echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+ggplot(aes(x = 借款金额), data = lc)+
+  geom_histogram()
+```
+
+借款金额中位数是3397，最大值是500000，关注借款金额中的99%的数据，再次分析借款金额分布情况
+
+```{r message=FALSE, echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+ggplot(aes(x = 借款金额), data = lc)+
+  geom_histogram(breaks = seq(0,quantile(lc$借款金额,0.99),2000))+
+  scale_x_continuous(breaks = seq(0,quantile(lc$借款金额,0.99),2000))+
+  coord_cartesian(xlim = c(0,quantile(lc$借款金额,0.99)))
+```
+
+```{r message=FALSE, echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+ggplot(aes(x = 借款期限), data = lc)+
+    geom_bar()+
+    scale_x_continuous(breaks = seq(0,max(lc$借款期限),1))
+```
+
+主要的借款期限集中在12个月和6个月
+
+```{r message=FALSE, echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+ggplot(aes(x = 借款利率), data = lc)+
+    geom_histogram()+
+    scale_x_continuous(breaks = seq(0,max(lc$借款利率),1))
+```
+
+借款利率大多分布在22%，20%，18%
+
+```{r message=FALSE, echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+ggplot(aes(x = 借款利率), data = lc)+
+    geom_histogram()+
+    scale_x_continuous(breaks = seq(0,max(lc$借款利率),1))
+```
+
+```{r message=FALSE, echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+ggplot(aes(x = 年龄), data = lc)+
+    geom_histogram(breaks = seq(min(lc$年龄),max(lc$年龄),1))+
+    scale_x_continuous(breaks = seq(min(lc$年龄),max(lc$年龄),1))+
+    geom_vline(xintercept = quantile(lc$年龄, probs = 0.75),alpha = 0.75,
+             linetype="dashed",color = 'red')+
+    geom_vline(xintercept = quantile(lc$年龄, probs = 0.25),alpha = 0.75,
+             linetype="dashed",color = 'red')
+```
+
+25% 的用户年龄小于24岁，75% 的用户年龄小于33岁
+
+```{r message=FALSE, echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+ggplot(aes(x = 初始评级), data = lc)+
+    geom_bar()
+```
+
+用户初始评级大多为C级和D级
+
+```{r message=FALSE, echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+lc <- transform(lc, 贷款总利息 = 借款利率*借款金额*(借款期限/12)/100)
+lc <- transform(lc, 利息占本金比例 = 贷款总利息/借款金额)
+                
+ggplot(aes(x = 贷款总利息), data = lc)+
+  geom_histogram(breaks = seq(0,quantile(lc$贷款总利息,0.99),200))+
+  scale_x_continuous(breaks = seq(0,quantile(lc$贷款总利息,0.99),200))+
+  coord_cartesian(xlim = c(0,quantile(lc$贷款总利息,0.99)))
+
+  
+```
+```{r message=FALSE, echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+summary(lc$贷款总利息)
+```
+
+贷款总利息的平均值是762，中位数在600
+
+```{r warning=FALSE, fig.showtext=TRUE}
+lc$是否存在逾期 <- lc$历史逾期还款期数 >= 1
+sum(lc$是否存在逾期)/dim(lc)[1]
+```
+```{r message=FALSE, echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+pie_chart <- function(df, main, labels = NULL, condition = NULL) {
+
+  # convert the data into percentages. group by conditional variable if needed
+  df <- group_by_(df, .dots = c(condition, main)) %>%
+    summarize(counts = n()) %>%
+    mutate(perc = counts / sum(counts)) %>%
+    arrange(desc(perc)) %>%
+    mutate(label_pos = cumsum(perc) - perc / 2,
+           perc_text = paste0(round(perc * 100), "%"))
+
+  # reorder the category factor levels to order the legend
+  df[[main]] <- factor(df[[main]], levels = unique(df[[main]]))
+
+  # if labels haven't been specified, use what's already there
+  if (is.null(labels)) labels <- as.character(df[[main]])
+
+  p <- ggplot(data = df, aes_string(x = factor(1), y = "perc", fill = main)) +
+
+    # make stacked bar chart with black border
+    geom_bar(stat = "identity", color = "black", width = 1) +
+
+    # add the percents to the interior of the chart
+    geom_text(aes(x = 1.25, y = label_pos, label = perc_text), size = 4) +
+
+    # add the category labels to the chart
+    # increase x / play with label strings if labels aren't pretty
+    geom_text(aes(x = 1.82, y = label_pos, label = labels), size = 4) +
+
+    # convert to polar coordinates
+    coord_polar(theta = "y") +
+
+    # formatting
+    scale_y_continuous(breaks = NULL) +
+    scale_fill_discrete(name = "", labels = unique(labels)) +
+    theme(text = element_text(size = 12),
+          axis.ticks = element_blank(),
+          axis.text = element_blank(),
+          axis.title = element_blank())
+
+  # facet wrap if that's happening
+  if (!is.null(condition)) p <- p + facet_wrap(condition)
+
+  return(p)
+}
+pie_chart(lc, main = "是否存在逾期") +
+  labs(title = "是否存在逾期")
+```
+
+大约15%的借款用户存在逾期
+
+# 单变量分析
+
+##### 你的数据集结构是什么？
+数据集中有328553条数据，共有21个变量
+对于数据单变量的观察，总结在分析图的下方。
+
+##### 你的数据集内感兴趣的主要特性有哪些？
+主要感兴趣的特征为大约有15%用户存在逾期；以及不同年龄段和不同初始评级对借款金额对影响等。
+
+##### 你认为数据集内哪些其他特征可以帮助你探索兴趣特点？
+我认为借款金额，借款期限，利息，用户年龄以及各项认证等特征，可以帮助判断哪些用户可能会逾期。
+
+##### 根据数据集内已有变量，你是否创建了任何新变量？
+创造了3个新对变量，一个是布尔量，判断该用户是否存在逾期；另两个是计算该用户的总利息，以及总利息占借款金额比例。
+
+##### 在已经探究的特性中，是否存在任何异常分布？你是否对数据进行一些操作，如清洁、调整或改变数据的形式？如果是，你为什么会这样做？
+并没有对原数据做清理和调整。
+
+
+# 双变量绘图选择
+```{r echo=FALSE, warning=FALSE, fig.showtext=TRUE,Bivariate_Plots}
+lc_subset <- lc[,c('借款金额','借款期限',"借款利率","初始评级","借款类型" ,"年龄","是否存在逾期")]
+pairs.panels(lc_subset[sample(nrow(lc_subset),50000),])
+```
+
+对'借款金额','借款期限',"借款利率","初始评级","借款类型" ,"年龄","是否存在逾期" 等变量抽样50000条数据做相关性分析.
+
+```{r echo=FALSE, warning=FALSE, fig.showtext=TRUE,评级与利率}
+ggplot(aes(x = 初始评级, y = 借款利率,fill = 初始评级), data = lc)+
+  geom_bar(stat = 'summary',fun.y = mean, width = 0.7)+
+  scale_fill_brewer(palette = "Blues",direction = -1)
+```
+```{r echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+by(lc$借款利率,lc$初始评级,summary)
+```
+
+上图为不同评级对应的利率平均值情况，可以看出A评级的平均利率最低，评级为E的评级利率最高。
+
+```{r echo=FALSE, warning=FALSE, fig.showtext=TRUE,评级与年龄}
+ggplot(aes(x = 初始评级, y = 年龄,fill = 初始评级), data = lc)+
+  geom_boxplot()+
+  scale_fill_brewer(palette = "Blues",direction = -1)
+```
+
+从上图中可得初始评级为A的评级年龄中位数最小，评级为E的平均年龄中位数最大
+
+```{r echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+
+ggplot(aes(x = 年龄, y = 借款金额), data = lc)+
+  geom_point(position = "jitter",alpha = 0.2, 
+             color = 'orange',shape = 21)+
+  scale_y_log10()+
+  geom_line(stat = 'summary',fun.y = mean,alpha = 0.8)+
+  geom_line(stat = 'summary',fun.y = quantile, fun.args = list(probs =.1),
+            color = 'blue',linetype = 2)+
+  geom_line(stat = 'summary',fun.y = quantile, fun.args = list(probs =.9),
+            color = 'black',linetype = 2)+
+  geom_line(stat = 'summary',fun.y = quantile, fun.args = list(probs =.5),
+            color = 'blue',linetype = 2)
+```
+```{r echo=FALSE, warning=FALSE, fig.showtext=TRUE,年龄与金额关系}
+with(lc,cor.test(年龄,借款金额))
+```
+经上述分析可得，年龄和借款金额之间的相关性并不大。
+
+```{r echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+ggplot(aes(x = 是否存在逾期, y = 借款金额,fill = 是否存在逾期), data = lc)+
+  geom_boxplot()+
+  scale_fill_brewer(palette="Dark2")+
+  scale_y_log10()
+```
+```{r echo=FALSE, warning=FALSE, fig.showtext=TRUE,逾期与借款金额}
+by(lc$借款金额,lc$是否存在逾期,summary)
+```
+存在逾期的顾客年龄平均借款金额为4561，略大于没有逾期的顾客借款金额均值4399元。
+
+```{r echo=FALSE, warning=FALSE, fig.showtext=TRUE,逾期与年龄}
+ggplot(aes(x = 是否存在逾期, y = 年龄,fill = 是否存在逾期), data = lc)+
+  geom_boxplot()+
+  scale_fill_brewer(palette="Dark2")
+```
+```{r echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+by(lc$年龄,lc$是否存在逾期,summary)
+```
+是否存在逾期与年龄的关系不强，存在逾期的顾客年龄平均值稍大。
+
+# 双变量分析
+
+##### 探讨你在这部分探究中观察到的一些关系。这些感兴趣的特性与数据集内其他特性有什么区别？
+“是否存在逾期”变量单独与其他变量的相关性并不大，计划尝试做逻辑回归分析其他变量与“是否存在逾期”存在的关系。
+
+##### 你是否观察到主要特性与其他特性之间的有趣关系？
+有趣的关系在于初次评级于年龄之间的关系，原本以为最高评级A级的平均年龄应该相对较高。
+实际数据中发现平均年龄最高的评级为E级，评级A级的用户平均年龄反而是最低的。
+
+##### 你发现最强的关系是什么？
+相关最强的关系在初次评级和借款利率之间，其实是借款期限和借款利率之间的存在稍弱的正相关性。
+
+# 多变量绘图选择
+
+```{r echo=FALSE, warning=FALSE, fig.showtext=TRUE, Multivariate_Plots}
+ggplot(aes(x = 年龄, y = 借款金额), data = lc)+
+  geom_point(position = "jitter",alpha = 0.05,pch = 16, color = 'orange')+
+  scale_y_log10()+
+  geom_smooth()+
+  facet_wrap(~是否存在逾期)
+```
+
+分组来看是否逾期，在年龄和借款金额的关系上，两组差别并不大。
+
+```{r echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+ggplot(aes(x = 初始评级, y = 借款金额, color = 初始评级), data = lc)+
+  geom_boxplot()+
+  scale_y_log10()+
+  scale_color_brewer(palette = "Blues",direction = -1)+
+  facet_wrap(~借款类型)
+```
+```{r echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+by(lc$借款金额,lc$借款类型,summary)
+```
+```{r echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+lc_jine_by_leixing <- lc %>%
+  group_by(借款类型) %>%
+  summarise(借款金额平均值 = mean(借款金额),
+            借款金额中位数 = median(借款金额))
+p1 <- ggplot(aes(x = 借款类型, y = 借款金额平均值, fill = 借款类型),
+             data = lc_jine_by_leixing)+
+  geom_col()+
+  labs(title = '借款金额平均值分析')+
+  theme(axis.title.y  = element_blank(),legend.position = 'none')
+p2 <- ggplot(aes(x = 借款类型, y = 借款金额中位数, fill = 借款类型),
+             data = lc_jine_by_leixing)+
+  geom_col()+
+  labs(title = '借款金额中位数分析')+
+  theme(axis.title.y  = element_blank(),legend.position = 'none')
+grid.arrange(p1,p2,nrow = 1)
+```
+
+从电商渠道借款，很难评级到A级,但电商渠道的借款金额平均值和中位数却是最高的，而且电商渠道中评级为B的用户，借款金额平均值会高过其他渠道的A级用户。
+也可以看出从App闪电渠道借款，不仅借款金额均值较低，用户之间的借款金额差异也较其他渠道要大。
+不同销售渠道借款金额差别还是很大的，接下来需要分析一下，借款类型是否会对利率有影响。
+
+```{r echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+ggplot(aes(x = 初始评级, y = 借款利率, color = 初始评级), data = lc)+
+  geom_boxplot()+
+  scale_color_brewer(palette = "Blues",direction = -1)+
+  facet_wrap(~借款类型)
+```
+```{r echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+by(lc$借款利率,lc$借款类型,summary)
+```
+可以看出电商渠道对借款利率均值，中位数，最大值都是最低的，这对电商对借款金额高做了一定的解释。
+
+```{r echo=FALSE, warning=FALSE, fig.showtext=TRUE}
+lc_train <- subset(lc,select = c(2:4,6:24))
+train <- lc_train[1:30000,]
+model <- glm(是否存在逾期 ~.,family=binomial(link='logit'),data=train)
+summary(model)
+```
+尝试根据其他变量与是否逾期之间做逻辑回归，该回归模型中自变量的P值过大，该模型无法预测该用于是否存在逾期风险。
+
+
+# 多变量分析
+
+##### 探讨你在这部分探究中观察到的一些关系。通过观察感兴趣的特性，是否存在相互促进的特性？
+得出不同的借款渠道会影响借款利率，进而可以影响借款金额。该数据集中，电商渠道借款利率均值，中位数，最大值都是最低的，客户从电商的借款金额均值也远大于其他渠道。
+
+##### 这些特性之间是否存在有趣或惊人的联系呢？
+从电商渠道借款，很难评级到A级,但电商渠道的借款金额平均值却是最高的，而且电商渠道中评级为B的用户，借款金额平均值会高过其他渠道的A级用户。
+也可以看出从App闪电渠道借款，不仅借款金额均值较低，用户之间的借款金额差异也较其他渠道要大。
+
+##### 选项：你是否创建过数据集的任何模型？讨论你模型的优缺点。
+尝试根据其他变量与是否逾期之间做逻辑回归，该回归模型中自变量的P值过大，该模型无法预测该用于是否存在逾期风险。
+
+
+# 定稿图与总结
+
+##### 绘图一
+```{r echo=FALSE,fig.showtext=TRUE,Plot_One}
+ggplot(aes(x = 年龄), data = lc)+
+    geom_histogram(breaks = seq(min(lc$年龄),max(lc$年龄),1))+
+    scale_x_continuous(breaks = seq(min(lc$年龄),max(lc$年龄),1))+
+    geom_vline(xintercept = quantile(lc$年龄, probs = 0.75),alpha = 0.75,
+             linetype="dashed",color = 'red')+
+    geom_vline(xintercept = quantile(lc$年龄, probs = 0.25),alpha = 0.75,
+             linetype="dashed",color = 'red')+
+    labs(title = '用户年龄分布图')
+```
+
+##### 描述一
+25% 的用户年龄小于24岁，75% 的用户年龄小于33岁
+
+##### 绘图二
+```{r echo=FALSE, fig.showtext=TRUE, Plot_Two}
+ggplot(aes(x = 年龄, y = 借款金额), data = lc)+
+  geom_point(position = "jitter",alpha = 0.2, 
+             color = 'orange',shape = 21)+
+  scale_y_log10()+
+  geom_line(stat = 'summary',fun.y = mean,alpha = 0.8)+
+  geom_line(stat = 'summary',fun.y = quantile, fun.args = list(probs =.1),
+            color = 'blue',linetype = 2)+
+  geom_line(stat = 'summary',fun.y = quantile, fun.args = list(probs =.9),
+            color = 'black',linetype = 2)+
+  geom_line(stat = 'summary',fun.y = quantile, fun.args = list(probs =.5),
+            color = 'blue',linetype = 2)+
+  labs(title = '借款金额与用户年龄关系分析')
+```
+
+##### 描述二
+20岁的用户借款金额较少，随后借款金额几乎不随年龄的变化而变化，年龄和借款金额之间的相关性并不大。
+
+##### 绘图三
+```{r echo=FALSE, warning=FALSE, fig.showtext=TRUE, Plot_Three}
+ggplot(aes(x = 初始评级, y = 借款金额, color = 初始评级), data = lc)+
+  geom_boxplot()+
+  scale_y_log10()+
+  facet_wrap(~借款类型)+
+  scale_color_brewer(palette = "Blues",direction = -1)+
+  labs(title = '不同借款类型下，各初始评级和借款金额关系分析')
+```
+
+##### 描述三
+从电商渠道借款，很难评级到A级,但电商渠道的借款金额平均值却是最高的，而且电商渠道中评级为B的用户，借款金额平均值会高过其他渠道的A级用户。
+也可以看出从App闪电渠道借款，不仅借款金额均值较低，用户之间的借款金额差异也较其他渠道要大。
+------
+
+# 反思
+1. 多复习之前的知识，并将相应的知识点应用在项目中。
+2. 多去看各种资料，此次项目中 R Cookbook 对我帮助很大。
+3. 抓紧时间去学习，工作、生活和学习之间安排要合理。
+4. 分析过程中做的重要决定，分析过程中所遇到的挫折与成功
+通过自学R语言中的逻辑归回尝试分析哪些变量会影响是否产生逾期还款，对模型训练结束后，自变量的P值过大，无法很好的解释什么样的顾客有可能产生逾期。自己对于机器学习和 Feature Engineering的理解不是很深，这也激发我接下来的学习热情。
+5. 对这个数据的未来拓展工作提供了至少一个提议或问题。比如对于这个数据，我们还可以进行什么更近一步的分析工作呢？或者你还能够对这个数据提出什么问题？
+下一步希望可以对该数据集做用户画像分析，可以使用聚类等方法分析出用户特征。随着我对机器学习的深入了解，我还会回到这个数据集中去练习机器学习相关技巧。
+
+
+
